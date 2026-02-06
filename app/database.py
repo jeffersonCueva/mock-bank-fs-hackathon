@@ -5,17 +5,16 @@ import os
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = os.getenv("DB_NAME", "mock_db")
 
-if not MONGO_URI:
-    raise RuntimeError("MONGO_URI not set in .env")
 
-# MongoDB client
-client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+def get_database(db_name: str):
+    client = AsyncIOMotorClient(MONGO_URI, tls=True, serverSelectionTimeoutMS=10000)
 
-# Database object
-db = client[DB_NAME]
+    db = client[db_name]
 
-# Collections
-accounts_collection = db.accounts
-transactions_collection = db.transactions
+    return {
+        "client": client,
+        "accounts": db.accounts,
+        "transactions": db.transactions,
+        "bank_name": db_name,
+    }

@@ -1,23 +1,36 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.routes import accounts, transactions
-from app.database import client
+from app.database import get_database
+from app.routes.accounts import get_accounts_router
+from app.routes.transactions import get_transactions_router
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await client.admin.command("ping")
-    print("✅ Connected to MongoDB Atlas")
-    yield
+def create_app(bank_name: str):
+    db_ctx = get_database(bank_name)
+    client = db_ctx["client"]
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            await client.admin.command("ping")
+            print(f"✅ Connected to MongoDB for {bank_name}")
+        except Exception as e:
+            print("❌ MongoDB connection failed")
+            raise e
+        yield
 
-app = FastAPI(title="Mock Bank Backend", lifespan=lifespan)
+    app = FastAPI(title=f"{bank_name.upper()} API", lifespan=lifespan)
 
-# include routers
-app.include_router(accounts.router)
-app.include_router(transactions.router)
+    app.include_router(get_accounts_router(db_ctx["accounts"], bank_name))
 
+    app.include_router(
+        get_transactions_router(
+            db_ctx["accounts"], db_ctx["transactions"], client, bank_name
+        )
+    )
 
-@app.get("/")
-def root():
-    return {"status": "Mock Bank API running"}
+    @app.get("/")
+    def root():
+        return {"bank": bank_name, "status": "running"}
+
+    return app
