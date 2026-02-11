@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from app.database import get_database
 from app.routes.accounts import get_accounts_router
 from app.routes.transactions import get_transactions_router
+from app.routes.pay_bills import get_pay_bills_router
 
 
 def create_app(bank_name: str):
@@ -26,6 +27,12 @@ def create_app(bank_name: str):
 
     app.include_router(
         get_transactions_router(
+            db_ctx["accounts"], db_ctx["transactions"], client, bank_name
+        )
+    )
+
+    app.include_router(
+        get_pay_bills_router(
             db_ctx["accounts"], db_ctx["transactions"], client, bank_name
         )
     )

@@ -12,6 +12,9 @@ app = FastAPI(title="Clearing House")
 
 @app.post("/interbank-transfer")
 async def interbank_transfer(req: InterBankTransferRequest):
+
+    req.from_bank = req.from_bank.lower()
+    req.to_bank = req.to_bank.lower()
     if req.from_bank not in BANKS or req.to_bank not in BANKS:
         raise HTTPException(status_code=400, detail="Unknown bank")
 

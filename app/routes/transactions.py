@@ -9,6 +9,7 @@ import os
 
 def get_transactions_router(accounts, transactions, client, bank_name: str):
     router = APIRouter(tags=["Transactions"])
+    bank_name = bank_name.lower()
 
     now = datetime.now(timezone.utc)
     print(bank_name)
@@ -24,41 +25,50 @@ def get_transactions_router(accounts, transactions, client, bank_name: str):
             raise HTTPException(status_code=404, detail="Account not found")
 
         # Fetch all transactions for this account
-        txns_cursor = transactions.find({"account": user_id}).sort("timestamp", -1)
-        txns = await txns_cursor.to_list(length=100)  # limit to last 100 transactions
-
-        # Optional: convert ObjectId to string
-        for txn in txns:
-            txn["_id"] = str(txn["_id"])
+        transactionlist = await transactions.find({"account_id": user_id})
 
         return {
             "account_id": user_id,
             "name": user.get("name"),
             "bank_name": user.get("bank_name"),
-            "transactions": txns,
+            "transactions": transactionlist,
         }
 
     @router.post("/internal/credit")
     async def internal_credit(data: dict):
+
+        print(f"\n{'='*60}")
+        print("📨 Internal Credit Initiated")
+        print(f"{'='*60}")
+        print(f"Request data: {data}")
+        print(f"API Bank: {bank_name}")
+
         account_id = data["account_id"]
         amount = data["amount"]
-
+        print(f"🔍 Checking account {account_id} in {bank_name} database...")
         acc = await accounts.find_one(
             {"account_id": account_id, "bank_name": bank_name}
         )
 
         if not acc:
+            error_msg = f"Account {account_id} not found"
+            print(f"❌ {error_msg}")
             raise HTTPException(status_code=404, detail="Account not found")
+        print(f"✅ Account found: {account_id}")
 
         await accounts.update_one(
             {"account_id": account_id, "bank_name": bank_name},
             {"$inc": {"balance": amount}},
         )
 
+        print(
+            f"✅ Credit Successful. {amount} to {account_id} in {bank_name} database..."
+        )
+
         await transactions.insert_one(
             {
                 "id": str(uuid.uuid4()),
-                "bank_name": bank_name,
+                "bank": bank_name,
                 "account_id": account_id,
                 "type": "CREDIT",
                 "amount": amount,
@@ -67,63 +77,94 @@ def get_transactions_router(accounts, transactions, client, bank_name: str):
             }
         )
 
+        print("✅ Transaction recorded")
+        print(f"{'='*60}\n")
+
         return {"status": "credited"}
 
     @router.post("/transfer")
     async def transfer_funds(req: TransferRequest):
+        to_bank = req.to_bank.lower()
+
+        print(f"\n{'='*60}")
+        print("📨 Transfer Initiated")
+        print(f"{'='*60}")
+        print(f"Request data: {req}")
+        print(f"API Bank: {bank_name}")
+
+        account_name = req.from_account
+        print(f"🔍 Checking account {account_name} in {bank_name} database...")
         sender = await accounts.find_one(
             {"account_id": req.from_account, "bank_name": bank_name}
         )
+        if not sender:
+            error_msg = f"Account {account_name} not found"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=404, detail="Sender not found")
+
+        print(f"✅ Account found: {account_name}")
 
         receiver = await accounts.find_one(
             {"account_id": req.to_account, "bank_name": bank_name}
         )
 
-        if not sender:
-            raise HTTPException(status_code=404, detail="Sender not found")
-
         if sender["balance"] < req.amount:
             raise HTTPException(status_code=400, detail="Insufficient funds")
-        if req.to_bank == bank_name:
+        if to_bank == bank_name:
+            receiver_name = req.to_account
+            print(f"🔍 Checking account {receiver_name} in {bank_name} database...")
             if not receiver:
+                error_msg = f"Account {receiver_name} not found"
+                print(f"❌ {error_msg}")
                 raise HTTPException(status_code=404, detail="Receiver not found")
+            print(f"✅ Account found: {receiver_name}")
 
         # Build human-readable description
-        if req.to_bank and req.to_bank != bank_name:
-            description = f"Inter-bank transfer to {req.to_bank} / {req.to_account}"
+        if to_bank and to_bank != bank_name:
+            description = f"Inter-bank transfer to {to_bank} / {req.to_account}"
         else:
             description = f"Transfer to {req.to_account}"
+        await accounts.update_one(
+            {"account_id": req.from_account, "bank_name": bank_name},
+            {"$inc": {"balance": -req.amount}},
+        )
+        print(
+            f"✅ Debit Successful. {req.amount} from {account_name} in {bank_name} database..."
+        )
 
-        # Always debit if THIS bank is the sender
-        if req.from_bank == bank_name:
+        await transactions.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "account_id": req.from_account,
+                "type": "debit",
+                "amount": req.amount,
+                "counterparty": req.to_account,
+                "counterparty_bank": to_bank,
+                "bank": bank_name,
+                "description": description,
+                "timestamp": now.isoformat(),
+            }
+        )
 
-            await accounts.update_one(
-                {"account_id": req.from_account, "bank_name": bank_name},
-                {"$inc": {"balance": -req.amount}},
-            )
-            transactions.insert_one(
-                {
-                    "id": str(uuid.uuid4()),
-                    "account": req.from_account,
-                    "type": "debit",
-                    "amount": req.amount,
-                    "counterparty": req.to_account,
-                    "counterparty_bank": req.to_bank,
-                    "bank": bank_name,
-                    "description": f"Transfer to {req.to_account} ({req.to_bank})",
-                    "timestamp": now.isoformat(),
-                }
-            )
+        print(f"✅ Transaction Added")
 
         # Credit ONLY if:
         # - same-bank transfer OR
         # - incoming interbank transfer
-        print(f"from bank {req.from_bank}, to bank: {req.to_bank}, bank: {bank_name}")
-        if req.to_bank == bank_name:
-            transactions.insert_one(
+        print(f"from bank {req.from_bank}, to bank: {to_bank}, bank: {bank_name}")
+        if to_bank == bank_name:
+            await accounts.update_one(
+                {"account_id": req.to_account, "bank_name": bank_name},
+                {"$inc": {"balance": req.amount}},
+            )
+
+            print(
+                f"✅ Credit Successful. {req.amount} to {req.to_account} in {bank_name} database..."
+            )
+            await transactions.insert_one(
                 {
                     "id": str(uuid.uuid4()),
-                    "account": req.to_account,
+                    "account_id": req.to_account,
                     "type": "credit",
                     "amount": req.amount,
                     "counterparty": req.from_account,
@@ -134,117 +175,17 @@ def get_transactions_router(accounts, transactions, client, bank_name: str):
                 }
             )
 
-            await accounts.update_one(
-                {"account_id": req.to_account, "bank_name": bank_name},
-                {"$inc": {"balance": req.amount}},
-            )
+            print("✅ Transaction recorded")
+            print(f"{'='*60}\n")
 
             return {
                 "status": "Transaction Completed",
                 "inter_bank": False,
             }
-
+        print(f"{'='*60}\n")
         return {
             "status": "debited",
-            "inter_bank": bool(req.to_bank and req.to_bank != bank_name),
-        }
-
-    @router.get("/supported-billers")
-    async def get_supported_billers():
-        """
-        Get list of supported billers for this bank
-        """
-        billers = get_billers(bank_name)
-        return billers
-
-    @router.post("/bill-payment")
-    async def bill_payment(data: dict):
-        """
-        Process a bill payment for a customer.
-        Required fields: account_holder, biller_code, reference_number, amount
-        """
-        print(f"\n{'='*60}")
-        print(f"📨 Bill Payment Request Received")
-        print(f"{'='*60}")
-        print(f"Request data: {data}")
-        print(f"API Bank: {bank_name}")
-        
-        account_holder = data.get("account_holder", "").upper()
-        biller_code = data.get("biller_code", "").upper()
-        reference_number = data.get("reference_number")
-        amount = data.get("amount")
-
-        print(f"Parsed - Account: {account_holder}, Biller: {biller_code}, Ref: {reference_number}, Amount: {amount}")
-
-        # Validate required fields
-        if not all([account_holder, biller_code, reference_number, amount]):
-            error_msg = "Missing required fields: account_holder, biller_code, reference_number, amount"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        # Check if account exists
-        print(f"🔍 Checking account {account_holder} in {bank_name} database...")
-        acc = await accounts.find_one(
-            {"account_id": account_holder, "bank_name": bank_name}
-        )
-        if not acc:
-            error_msg = f"Account {account_holder} not found"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=404, detail=error_msg)
-        print(f"✅ Account found: {account_holder}")
-
-        # Check if biller is supported by this bank
-        print(f"🔍 Loading billers for {bank_name}...")
-        billers = get_billers(bank_name)
-        print(f"Available billers: {list(billers.keys())}")
-        
-        # Use case-insensitive lookup - normalize both the input and keys to uppercase
-        biller_code_normalized = biller_code.upper()
-        billers_normalized = {k.upper(): v for k, v in billers.items()}
-        
-        if biller_code_normalized not in billers_normalized:
-            error_msg = f"Biller {biller_code} not supported. Supported billers: {list(billers.keys())}"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=400, detail=error_msg)
-        print(f"✅ Biller {biller_code} supported")
-
-        # Check sufficient balance
-        print(f"💰 Account balance: PHP {acc['balance']:,}, Payment amount: PHP {amount:,}")
-        if acc["balance"] < amount:
-            error_msg = "Insufficient funds"
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        # Debit the account
-        print(f"💳 Debiting PHP {amount:,} from {account_holder}...")
-        await accounts.update_one(
-            {"account_id": account_holder, "bank_name": bank_name},
-            {"$inc": {"balance": -amount}},
-        )
-
-        # Record transaction
-        biller_name = billers_normalized[biller_code_normalized].get("name", biller_code)
-        await transactions.insert_one(
-            {
-                "id": str(uuid.uuid4()),
-                "account": account_holder,
-                "type": "debit",
-                "amount": amount,
-                "counterparty": biller_code_normalized,
-                "counterparty_bank": "external",
-                "bank": bank_name,
-                "description": f"Bill payment to {biller_name} (Ref: {reference_number})",
-                "timestamp": now.isoformat(),
-            }
-        )
-        print(f"✅ Transaction recorded")
-        print(f"{'='*60}\n")
-
-        return {
-            "message": "Bill payment completed successfully",
-            "biller": biller_name,
-            "reference_number": reference_number,
-            "amount": amount,
+            "inter_bank": bool(to_bank and to_bank != bank_name),
         }
 
     return router
