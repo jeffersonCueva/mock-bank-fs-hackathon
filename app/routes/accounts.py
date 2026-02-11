@@ -6,6 +6,9 @@ def get_accounts_router(accounts_collection, bank_name: str):
 
     @router.get("/{account_id}")
     async def check_balance(account_id: str):
+        # Make account_id case-insensitive by converting to uppercase
+        account_id = account_id.upper()
+        
         acc = await accounts_collection.find_one(
             {"account_id": account_id, "bank_name": bank_name}, {"_id": 0}
         )
