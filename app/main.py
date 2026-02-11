@@ -12,10 +12,11 @@ def create_app(bank_name: str):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
-            await client.admin.command("ping")
-            print(f"✅ Connected to MongoDB for {bank_name}")
+            # Test Cosmos DB connection by listing databases
+            list(client.list_databases())
+            print(f"✅ Connected to Azure Cosmos DB for {bank_name}")
         except Exception as e:
-            print("❌ MongoDB connection failed")
+            print("❌ Azure Cosmos DB connection failed")
             raise e
         yield
 

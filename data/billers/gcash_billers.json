@@ -1,0 +1,22 @@
+{
+  "MAYNILAD": {
+    "name": "Maynilad Water Services",
+    "code": "MAYNILAD"
+  },
+  "MERALCO": {
+    "name": "Manila Electric Company",
+    "code": "MERALCO"
+  },
+  "PLDT": {
+    "name": "Philippine Long Distance Telephone",
+    "code": "PLDT"
+  },
+  "ABS_CBN": {
+    "name": "ABS-CBN",
+    "code": "ABS_CBN"
+  },
+  "BIR": {
+    "name": "Bureau of Internal Revenue",
+    "code": "BIR"
+  }
+}

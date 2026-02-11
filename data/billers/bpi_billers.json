@@ -1,0 +1,26 @@
+{
+  "MAYNILAD": {
+    "name": "Maynilad Water Services",
+    "code": "MAYNILAD"
+  },
+  "MERALCO": {
+    "name": "Manila Electric Company",
+    "code": "MERALCO"
+  },
+  "GLOBE": {
+    "name": "Globe Telecom",
+    "code": "GLOBE"
+  },
+  "CONVERGE": {
+    "name": "Converge ICT",
+    "code": "CONVERGE"
+  },
+  "SSS": {
+    "name": "Social Security System",
+    "code": "SSS"
+  },
+  "PAGIBIG": {
+    "name": "Home Development Mutual Fund",
+    "code": "PAGIBIG"
+  }
+}
