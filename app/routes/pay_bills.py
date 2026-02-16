@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime, timezone
-from app.models import TransferRequest
+from app.models import TransferRequest, BillPaymentRequest
 from app.utils.billers import get_billers
 import uuid
 import httpx
@@ -27,6 +27,7 @@ def get_pay_bills_router(accounts, transactions, client, bank_name: str):
         """
         Process a bill payment for a customer.
         Required fields: account_holder, biller_code, reference_number, amount
+        Optional field: idempotency_key (for idempotent requests)
         """
         print(f"\n{'='*60}")
         print("📨 Bill Payment Request Received")
@@ -38,6 +39,7 @@ def get_pay_bills_router(accounts, transactions, client, bank_name: str):
         biller_code = data.get("biller_code", "").upper()
         reference_number = data.get("reference_number")
         amount = data.get("amount")
+        idempotency_key = data.get("idempotency_key")
 
         print(
             f"Parsed - Account: {account_holder}, Biller: {biller_code}, Ref: {reference_number}, Amount: {amount}"
@@ -48,6 +50,25 @@ def get_pay_bills_router(accounts, transactions, client, bank_name: str):
             error_msg = "Missing required fields: account_holder, biller_code, reference_number, amount"
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
+
+        # Check for duplicate request using idempotency key
+        if idempotency_key:
+            print(f"🔑 Idempotency key provided: {idempotency_key}")
+            existing_transaction = await transactions.find_one(
+                {"idempotency_key": idempotency_key, "bank": bank_name}
+            )
+            if existing_transaction:
+                print(f"✅ Duplicate request detected. Returning cached response.")
+                return {
+                    "message": "Duplicate payment request detected. Previous payment already processed.",
+                    "biller": existing_transaction.get("counterparty"),
+                    "reference_number": existing_transaction.get("reference_number"),
+                    "amount": existing_transaction.get("amount"),
+                    "duplicate": True,
+                }
+            print(f"✅ Idempotency key is new. Processing payment...")
+        else:
+            print(f"⚠️  No idempotency key provided. Request is not idempotent.")
 
         # Check if account exists
         print(f"🔍 Checking account {account_holder} in {bank_name} database...")
@@ -95,19 +116,21 @@ def get_pay_bills_router(accounts, transactions, client, bank_name: str):
         biller_name = billers_normalized[biller_code_normalized].get(
             "name", biller_code
         )
-        await transactions.insert_one(
-            {
-                "id": str(uuid.uuid4()),
-                "account_id": account_holder,
-                "type": "debit",
-                "amount": amount,
-                "counterparty": biller_code_normalized,
-                "counterparty_bank": "external",
-                "bank": bank_name,
-                "description": f"Bill payment to {biller_name} (Ref: {reference_number})",
-                "timestamp": now.isoformat(),
-            }
-        )
+        transaction_record = {
+            "id": str(uuid.uuid4()),
+            "account_id": account_holder,
+            "type": "bill_payment",
+            "amount": amount,
+            "counterparty": biller_code_normalized,
+            "counterparty_bank": "external",
+            "bank": bank_name,
+            "description": f"Bill payment to {biller_name} (Ref: {reference_number})",
+            "timestamp": now.isoformat(),
+            "reference_number": reference_number,
+        }
+        if idempotency_key:
+            transaction_record["idempotency_key"] = idempotency_key
+        await transactions.insert_one(transaction_record)
         print("✅ Transaction recorded")
         print(f"{'='*60}\n")
 

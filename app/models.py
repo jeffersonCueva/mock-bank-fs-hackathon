@@ -17,3 +17,11 @@ class InterBankTransferRequest(BaseModel):
     from_account: str
     to_account: str
     amount: int = Field(..., gt=0)
+
+
+class BillPaymentRequest(BaseModel):
+    account_holder: str
+    biller_code: str
+    reference_number: str
+    amount: int = Field(..., gt=0)
+    idempotency_key: Optional[str] = None
