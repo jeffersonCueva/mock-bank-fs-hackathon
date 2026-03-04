@@ -1,10 +1,10 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.database import get_database
 from app.routes.accounts import get_accounts_router
 from app.routes.transactions import get_transactions_router
 from app.routes.pay_bills import get_pay_bills_router
-
 
 def create_app(bank_name: str):
     db_ctx = get_database(bank_name)
@@ -22,6 +22,13 @@ def create_app(bank_name: str):
         yield
 
     app = FastAPI(title=f"{bank_name.upper()} API", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     app.include_router(get_accounts_router(db_ctx["accounts"], bank_name))
 
